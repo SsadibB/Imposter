@@ -1,12 +1,12 @@
 using UnityEngine;
 
-public enum CommandType { Graze, AllStop, Scatter, MakeSounds }
+public enum CommandType { HeadsUp, HeadsDownGraze, WalkSlowly, Scatter, MakeSounds, AllStop }
 public enum SheepBehaviorMode { Normal, Late, Quitter }
 
 public class RoundController : MonoBehaviour
 {
     [Header("Settings")]
-    public int roundsToWin = 12;
+    // Game is now infinite — rounds increment forever until the wolf is caught
     public float graceDuration = 0.4f;
 
     [Header("References")]
@@ -18,7 +18,7 @@ public class RoundController : MonoBehaviour
     public int Round { get; private set; } = 0;
     public bool CommandActive { get; private set; } = false;
     public bool GraceOver { get; private set; } = false;
-    public CommandType ActiveCommand { get; private set; } = CommandType.Graze;
+    public CommandType ActiveCommand { get; private set; } = CommandType.HeadsDownGraze;
     public float WindowTime { get; private set; } = 4f;
     public float TimerRemaining { get; private set; } = 0f;
 
@@ -28,10 +28,12 @@ public class RoundController : MonoBehaviour
     private CommandType _lastCommand = (CommandType)(-1);
 
     private static readonly string[] CommandDisplayTexts = {
-        "HEADS DOWN, GRAZE",
-        "ALL STOP",
+        "HEADS UP",
+        "HEADS DOWN + GRAZE",
+        "FLOCKS WALK SLOWLY",
         "SCATTER",
-        "MAKE SOUNDS"
+        "MAKE SOUNDS",
+        "ALL STOP"
     };
 
     public void OnPlay()
@@ -50,14 +52,7 @@ public class RoundController : MonoBehaviour
             if (_intermissionTimer <= 0f)
             {
                 Round++;
-                if (Round > roundsToWin)
-                {
-                    gameManager.Win();
-                }
-                else
-                {
-                    StartCommand();
-                }
+                StartCommand(); // No upper limit — game runs until wolf is caught
             }
         }
         else if (CommandActive)
@@ -98,21 +93,19 @@ public class RoundController : MonoBehaviour
         _graceTimer = graceDuration;
         GraceOver = false;
 
-        // Difficulty curve t = (Round - 1) / 11
-        float t = Mathf.Clamp01((Round - 1) / 11f);
-        WindowTime = Mathf.Lerp(4.0f, 2.5f, t);
+        // Difficulty curve: gets gradually harder, caps at round 20
+        float t = Mathf.Clamp01((Round - 1) / 19f);
+        WindowTime = Mathf.Lerp(4.0f, 2.0f, t);
         TimerRemaining = WindowTime;
 
         // Pick command different from last
-        int nextCmd = Random.Range(0, 4);
+        int nextCmd = Random.Range(0, 6);
         if ((CommandType)nextCmd == _lastCommand)
-        {
-            nextCmd = (nextCmd + 1 + Random.Range(0, 3)) % 4;
-        }
+            nextCmd = (nextCmd + 1 + Random.Range(0, 5)) % 6;
         ActiveCommand = (CommandType)nextCmd;
         _lastCommand = ActiveCommand;
 
-        // Pick slow sheep
+        // Pick slow sheep — after round 12 all 3 slots are always hard
         int slowTargetCount = (Round <= 4) ? 1 : (Round <= 8) ? 2 : 3;
         var aliveSheepIndices = new System.Collections.Generic.List<int>();
         for (int i = 0; i < normalSheep.Length; i++)
@@ -141,7 +134,7 @@ public class RoundController : MonoBehaviour
 
         for (int i = 0; i < normalSheep.Length; i++)
         {
-            if (normalSheep[i] == null || !normalSheep[i].gameObject.activeSelf) continue;
+            if (normalSheep[i] == null || !normalSheep[i].gameObject.activeSelf || (normalSheep[i].status != null && !normalSheep[i].status.alive)) continue;
 
             SheepBehaviorMode mode = SheepBehaviorMode.Normal;
             if (slowIndicesSet.Contains(i))
@@ -151,14 +144,15 @@ public class RoundController : MonoBehaviour
             normalSheep[i].BeginCommand(ActiveCommand, mode);
         }
 
-        if (wolf != null)
+        if (wolf != null && (wolf.status == null || wolf.status.alive))
         {
             wolf.BeginCommand(ActiveCommand);
         }
 
         if (hudController)
         {
-            hudController.ShowCommand(CommandDisplayTexts[(int)ActiveCommand], Round, roundsToWin);
+            // Pass Round as both current and max — HUD shows "ROUND X" without an end cap
+            hudController.ShowCommand(CommandDisplayTexts[(int)ActiveCommand], Round, Round);
         }
     }
 
@@ -169,7 +163,7 @@ public class RoundController : MonoBehaviour
 
         for (int i = 0; i < normalSheep.Length; i++)
         {
-            if (normalSheep[i] != null && normalSheep[i].gameObject.activeSelf)
+            if (normalSheep[i] != null && normalSheep[i].gameObject.activeSelf && (normalSheep[i].status == null || normalSheep[i].status.alive))
                 normalSheep[i].EndCommand();
         }
 

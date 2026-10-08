@@ -15,6 +15,9 @@ public class WolfController : MonoBehaviour
     public GameObject bleatBubble;
     public VirtualJoystick joystick;
     public HoldButton btnGraze;
+    public HoldButton btnLook;
+    public HoldButton btnWalkSlowly;
+    public HoldButton btnScatter;
     public Button btnBleat;
     public RoundController roundController;
     public HUDController hudController;
@@ -92,10 +95,15 @@ public class WolfController : MonoBehaviour
             OnBleatClicked();
         }
 
+        // Look / Heads Up hold
+        bool keyLook = Input.GetKey(KeyCode.L) || Input.GetKey(KeyCode.Space);
+        bool btnLookHeld = btnLook != null && btnLook.IsHeld;
+        bool isLooking = keyLook || btnLookHeld;
+
         // Graze hold
         bool keyGraze = Input.GetKey(KeyCode.G);
         bool btnGrazeHeld = btnGraze != null && btnGraze.IsHeld;
-        bool isGrazing = keyGraze || btnGrazeHeld;
+        bool isGrazing = (keyGraze || btnGrazeHeld) && !isLooking;
 
         // Movement Input
         float kx = 0f, ky = 0f;
@@ -111,11 +119,19 @@ public class WolfController : MonoBehaviour
         Vector2 moveInput = (kbInput.magnitude > 0.1f) ? kbInput : joyInput;
         if (moveInput.magnitude > 1f) moveInput.Normalize();
 
-        // While grazing, wolf cannot walk
-        Vector2 startPos = status.rect.anchoredPosition;
-        if (!isGrazing && moveInput.magnitude > 0.01f)
+        // Speed adjustment for Walk Slowly command
+        float curSpeed = moveSpeed;
+        if (_hasCommand && roundController && roundController.ActiveCommand == CommandType.WalkSlowly)
         {
-            Vector2 newPos = startPos + moveInput * moveSpeed * Time.deltaTime;
+            curSpeed = moveSpeed * 0.5f;
+        }
+
+        // While grazing or looking up, wolf cannot walk
+        bool canMove = !isGrazing && !isLooking;
+        Vector2 startPos = status.rect.anchoredPosition;
+        if (canMove && moveInput.magnitude > 0.01f)
+        {
+            Vector2 newPos = startPos + moveInput * curSpeed * Time.deltaTime;
 
             if (flockBounds)
             {
@@ -139,9 +155,22 @@ public class WolfController : MonoBehaviour
             }
         }
 
-        // Graze visuals
-        if (grazeFX) grazeFX.SetActive(isGrazing);
-        if (head) head.localEulerAngles = isGrazing ? new Vector3(0f, 0f, -25f) : Vector3.zero;
+        // Head & Graze Visuals
+        if (isGrazing)
+        {
+            if (grazeFX) grazeFX.SetActive(true);
+            if (head) head.localEulerAngles = new Vector3(0f, 0f, -25f);
+        }
+        else if (isLooking)
+        {
+            if (grazeFX) grazeFX.SetActive(false);
+            if (head) head.localEulerAngles = new Vector3(0f, 0f, 25f);
+        }
+        else
+        {
+            if (grazeFX) grazeFX.SetActive(false);
+            if (head) head.localEulerAngles = Vector3.zero;
+        }
 
         // Velocity & Tick
         Vector2 delta = status.rect.anchoredPosition - startPos;
@@ -151,7 +180,7 @@ public class WolfController : MonoBehaviour
         // Command performance evaluation
         if (_hasCommand && roundController && roundController.CommandActive)
         {
-            bool performing = IsPerforming(_activeCmd, isGrazing, moveInput.magnitude, _bleatTimer > 0f);
+            bool performing = IsPerforming(_activeCmd, isGrazing, isLooking, moveInput.magnitude, _bleatTimer > 0f);
 
             if (roundController.GraceOver)
             {
@@ -188,18 +217,22 @@ public class WolfController : MonoBehaviour
         }
     }
 
-    private bool IsPerforming(CommandType cmd, bool isGrazing, float moveMag, bool isBleating)
+    private bool IsPerforming(CommandType cmd, bool isGrazing, bool isLooking, float moveMag, bool isBleating)
     {
         switch (cmd)
         {
-            case CommandType.Graze:
-                return isGrazing;
-            case CommandType.AllStop:
-                return moveMag < 0.1f;
+            case CommandType.HeadsUp:
+                return isLooking && !isGrazing;
+            case CommandType.HeadsDownGraze:
+                return isGrazing && !isLooking;
+            case CommandType.WalkSlowly:
+                return moveMag > 0.05f;
             case CommandType.Scatter:
-                return moveMag > 0.5f;
+                return moveMag > 0.4f;
             case CommandType.MakeSounds:
                 return isBleating;
+            case CommandType.AllStop:
+                return moveMag < 0.1f;
             default:
                 return false;
         }

@@ -23,6 +23,7 @@ public class AimController : MonoBehaviour
     public GameObject ownerAlertMark;
     public CanvasGroup warningAimed;
     public GameObject flashShot;
+    public LaserAimVisual laserVisual;
 
     [Header("Flock")]
     public SheepStatus[] allSheep; // All 9 sheep
@@ -49,6 +50,10 @@ public class AimController : MonoBehaviour
     void Awake()
     {
         _aliveBuffer = new SheepStatus[9];
+        if (laserVisual == null)
+        {
+            laserVisual = FindFirstObjectByType<LaserAimVisual>();
+        }
     }
 
     void Update()
@@ -59,6 +64,8 @@ public class AimController : MonoBehaviour
                 warningAimed.gameObject.SetActive(false);
             if (ownerAlertMark && ownerAlertMark.activeSelf)
                 ownerAlertMark.SetActive(false);
+            if (laserVisual != null)
+                laserVisual.SetLaserVisible(false);
             return;
         }
 
@@ -93,6 +100,7 @@ public class AimController : MonoBehaviour
         {
             _lockProgress = 0f;
             if (aimLockFill) aimLockFill.fillAmount = 0f;
+            if (laserVisual != null) laserVisual.SetLaserVisible(false);
             return;
         }
 
@@ -135,12 +143,12 @@ public class AimController : MonoBehaviour
             return;
         }
 
-        // 4. Visuals (Gun rotation, Alert Mark, Warning)
+        // 4. Visuals (Gun rotation, Alert Mark, Warning, Laser Line)
+        Vector3 worldGun = ownerGun ? ownerGun.position : Vector3.zero;
+        Vector3 worldAim = aimRect ? aimRect.position : Vector3.zero;
+
         if (ownerGun)
         {
-            // Owner is at OwnerPos, Gun rotates to aim
-            Vector3 worldGun = ownerGun.position;
-            Vector3 worldAim = aimRect.position;
             Vector3 dir = worldAim - worldGun;
             float angle = Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg;
             ownerGun.eulerAngles = new Vector3(0f, 0f, angle);
@@ -149,6 +157,15 @@ public class AimController : MonoBehaviour
         if (ownerAlertMark)
         {
             ownerAlertMark.SetActive(_lockProgress > 0f);
+        }
+
+        // Laser aiming line visible from weapon to target
+        if (laserVisual != null)
+        {
+            Vector3 muzzlePos = (ownerMuzzleFlash && ownerMuzzleFlash.transform != null) 
+                ? ownerMuzzleFlash.transform.position 
+                : worldGun;
+            laserVisual.UpdateLaser(true, _lockProgress, muzzlePos, worldAim);
         }
 
         // Warning_Aimed for player wolf
@@ -230,6 +247,30 @@ public class AimController : MonoBehaviour
             _muzzleFlashTimer = 0.1f;
         }
 
+        Vector3 muzzlePos = (ownerMuzzleFlash && ownerMuzzleFlash.transform != null) 
+            ? ownerMuzzleFlash.transform.position 
+            : (ownerGun ? ownerGun.position : Vector3.zero);
+        Vector3 targetPos = target.rect.position;
+
+        // Play fire effect along the line
+        if (laserVisual != null)
+        {
+            laserVisual.SetLaserVisible(false);
+            laserVisual.PlayFireShotAlongLine(muzzlePos, targetPos, () =>
+            {
+                ApplyHitToTarget(target);
+            });
+        }
+        else
+        {
+            ApplyHitToTarget(target);
+        }
+    }
+
+    private void ApplyHitToTarget(SheepStatus target)
+    {
+        if (target == null) return;
+
         // Play Poof VFX
         if (fxPoofs != null && fxPoofs.Length > 0)
         {
@@ -244,8 +285,8 @@ public class AimController : MonoBehaviour
             }
         }
 
-        target.alive = false;
-        target.gameObject.SetActive(false);
+        // Apply burned effect
+        target.ApplyBurnedEffect();
 
         if (target.isWolf)
         {
@@ -260,29 +301,8 @@ public class AimController : MonoBehaviour
                 gameManager.Lose();
             }
         }
-        else
-        {
-            // Normal sheep was shot: satisfy owner, multiply other sheep's suspicion by 0.7
-            for (int i = 0; i < allSheep.Length; i++)
-            {
-                if (allSheep[i] != null && allSheep[i].alive && allSheep[i] != target)
-                {
-                    allSheep[i].suspicion *= 0.7f;
-                }
-            }
-
-            int aliveNormal = 0;
-            for (int i = 0; i < allSheep.Length; i++)
-            {
-                if (allSheep[i] != null && allSheep[i].alive && !allSheep[i].isWolf)
-                    aliveNormal++;
-            }
-
-            if (hudController)
-            {
-                hudController.UpdateSheepLeft(aliveNormal);
-            }
-        }
+        // Normal sheep: they will recover automatically via SheepStatus.BurnRecoverRoutine
+        // No suspicion wipe — rounds are infinite and the flock stays in play
     }
 
     private System.Collections.IEnumerator HidePoofAfter(GameObject poof, float delay)

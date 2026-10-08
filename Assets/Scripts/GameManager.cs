@@ -119,30 +119,26 @@ public class GameManager : MonoBehaviour
 
     public void Win()
     {
-        if (state != GameState.Playing) return;
-
-        // +10 for each normal sheep still alive at end
-        int aliveNormal = 0;
-        if (allSheep != null)
-        {
-            for (int i = 0; i < allSheep.Length; i++)
-            {
-                if (allSheep[i] != null && allSheep[i].alive && !allSheep[i].isWolf)
-                    aliveNormal++;
-            }
-        }
-        AddScore(aliveNormal * 10);
-
-        SaveBestScore();
-        SetState(GameState.Won);
+        // Win is no longer reachable — game is infinite.
+        // Kept as a safety stub in case other code calls it.
+        Debug.Log("[GameManager] Win() called but game is infinite.");
     }
+
+    private bool _losingInProgress = false;
 
     public void Lose()
     {
-        if (state != GameState.Playing) return;
+        if (state != GameState.Playing || _losingInProgress) return;
+        _losingInProgress = true;
+        StartCoroutine(LoseAfterDelay(2f));
+    }
 
+    private System.Collections.IEnumerator LoseAfterDelay(float delay)
+    {
+        yield return new WaitForSeconds(delay);
         SaveBestScore();
         SetState(GameState.Lost);
+        _losingInProgress = false;
     }
 
     private void SaveBestScore()

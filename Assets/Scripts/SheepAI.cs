@@ -88,6 +88,11 @@ public class SheepAI : MonoBehaviour
         {
             PickNewScatterDir();
         }
+        else if (cmd == CommandType.WalkSlowly)
+        {
+            PickRandomPoint();
+            _idle = false;
+        }
     }
 
     public void EndCommand()
@@ -165,9 +170,18 @@ public class SheepAI : MonoBehaviour
         {
             switch (_activeCmd)
             {
-                case CommandType.Graze:
+                case CommandType.HeadsUp:
+                    if (grazeFX) grazeFX.SetActive(false);
+                    if (head) head.localEulerAngles = new Vector3(0f, 0f, 25f);
+                    break;
+                case CommandType.HeadsDownGraze:
                     if (grazeFX) grazeFX.SetActive(true);
                     if (head) head.localEulerAngles = new Vector3(0f, 0f, -25f);
+                    break;
+                case CommandType.WalkSlowly:
+                    if (grazeFX) grazeFX.SetActive(false);
+                    ResetHeadVisual();
+                    UpdateWanderSlow();
                     break;
                 case CommandType.AllStop:
                     if (grazeFX) grazeFX.SetActive(false);
@@ -228,6 +242,18 @@ public class SheepAI : MonoBehaviour
         {
             MoveTowardsPosition(_targetPos, wanderSpeed);
         }
+    }
+
+    private void UpdateWanderSlow()
+    {
+        _wanderTimer -= Time.deltaTime;
+        if (_wanderTimer <= 0f)
+        {
+            _wanderTimer = Random.Range(2f, 4f);
+            _idle = false;
+            PickRandomPoint();
+        }
+        MoveTowardsPosition(_targetPos, wanderSpeed * 0.5f);
     }
 
     private void MoveTowardsPosition(Vector2 target, float speed)

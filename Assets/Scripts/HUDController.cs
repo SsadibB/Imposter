@@ -83,7 +83,7 @@ public class HUDController : MonoBehaviour
     {
         if (_cachedRound == currentRound) return;
         _cachedRound = currentRound;
-        if (textRound) textRound.text = "ROUND " + currentRound + " / " + maxRounds;
+        if (textRound) textRound.text = "ROUND " + currentRound;
     }
 
     public void UpdateScore(int score)
@@ -142,7 +142,7 @@ public class HUDController : MonoBehaviour
         if (state == GameState.Lost)
         {
             if (spottedFinalScore) spottedFinalScore.text = finalScore.ToString();
-            if (spottedRoundsLine) spottedRoundsLine.text = "SURVIVED " + roundsSurvived + " / 12 ROUNDS";
+            if (spottedRoundsLine) spottedRoundsLine.text = "SURVIVED " + roundsSurvived + " ROUNDS";
             if (spottedBestLine) spottedBestLine.text = "BEST " + bestScore;
         }
         else if (state == GameState.Won)
