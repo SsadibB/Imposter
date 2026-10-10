@@ -75,6 +75,10 @@ public class SheepStatus : MonoBehaviour
         isBad = false;
         velocity = Vector2.zero;
 
+        // Sheep_Burn plays when the shot lands
+        if (SoundLibrary.Instance != null)
+            SoundLibrary.Instance.PlaySFX("Sheep_Burn");
+
         // Pause AI/suspicion ticking while burned
         alive = false;
 

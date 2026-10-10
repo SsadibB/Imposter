@@ -27,6 +27,12 @@ public class RoundController : MonoBehaviour
     private float _graceTimer = 0f;
     private CommandType _lastCommand = (CommandType)(-1);
 
+    // Correct_Command plays after a streak of 3 or 4 correct commands (target picked at random)
+    private const int StreakMin = 3;
+    private const int StreakMax = 4; // inclusive
+    private int _correctStreak = 0;
+    private int _streakTarget = StreakMin;
+
     private static readonly string[] CommandDisplayTexts = {
         "HEADS UP",
         "HEADS DOWN + GRAZE",
@@ -39,6 +45,10 @@ public class RoundController : MonoBehaviour
     public void OnPlay()
     {
         Round = 0;
+        _correctStreak = 0;
+        _streakTarget = Random.Range(StreakMin, StreakMax + 1);
+        if (SoundLibrary.Instance != null)
+            SoundLibrary.Instance.StopSFX("Sheep_Graze");
         StartIntermission();
     }
 
@@ -105,6 +115,14 @@ public class RoundController : MonoBehaviour
         ActiveCommand = (CommandType)nextCmd;
         _lastCommand = ActiveCommand;
 
+        // Sheep_Graze loops after a Heads Down + Graze command and keeps going until the next command starts
+        if (SoundLibrary.Instance != null)
+        {
+            SoundLibrary.Instance.StopSFX("Sheep_Graze");
+            if (ActiveCommand == CommandType.HeadsDownGraze)
+                SoundLibrary.Instance.PlaySFX("Sheep_Graze", true);
+        }
+
         // Pick slow sheep — after round 12 all 3 slots are always hard
         int slowTargetCount = (Round <= 4) ? 1 : (Round <= 8) ? 2 : 3;
         var aliveSheepIndices = new System.Collections.Generic.List<int>();
@@ -165,6 +183,24 @@ public class RoundController : MonoBehaviour
         {
             if (normalSheep[i] != null && normalSheep[i].gameObject.activeSelf && (normalSheep[i].status == null || normalSheep[i].status.alive))
                 normalSheep[i].EndCommand();
+        }
+
+        // Was the player's wolf performing the command correctly when the window closed?
+        bool wolfCorrect = wolf != null && wolf.status != null && wolf.status.alive && !wolf.status.isBad;
+        if (wolfCorrect)
+        {
+            _correctStreak++;
+            if (_correctStreak >= _streakTarget)
+            {
+                if (SoundLibrary.Instance != null)
+                    SoundLibrary.Instance.PlaySFX("Correct_Command");
+                _correctStreak = 0;
+                _streakTarget = Random.Range(StreakMin, StreakMax + 1);
+            }
+        }
+        else
+        {
+            _correctStreak = 0;
         }
 
         if (wolf != null)

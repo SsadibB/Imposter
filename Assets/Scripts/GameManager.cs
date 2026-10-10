@@ -41,7 +41,12 @@ public class GameManager : MonoBehaviour
 
     void Start()
     {
+        AudioListener.pause = false;
         SetState(GameState.Start);
+
+        // Background music plays from the start screen onward
+        if (SoundLibrary.Instance != null)
+            SoundLibrary.Instance.PlayMusic("Main_BGM");
 
         if (btnPlay) btnPlay.onClick.AddListener(OnPlayClicked);
         if (btnRetry) btnRetry.onClick.AddListener(ReloadScene);
@@ -92,6 +97,7 @@ public class GameManager : MonoBehaviour
 
     public void ReloadScene()
     {
+        AudioListener.pause = false;
         Time.timeScale = 1f;
         SceneManager.LoadScene(0);
     }
@@ -100,6 +106,9 @@ public class GameManager : MonoBehaviour
     {
         state = newState;
         Time.timeScale = (newState == GameState.Paused) ? 0f : 1f;
+
+        // Pause/resume all audio together with the game
+        AudioListener.pause = (newState == GameState.Paused);
 
         int roundsSurvived = roundController ? Mathf.Max(0, roundController.Round - 1) : 0;
         if (hudController)
@@ -130,6 +139,11 @@ public class GameManager : MonoBehaviour
     {
         if (state != GameState.Playing || _losingInProgress) return;
         _losingInProgress = true;
+
+        // Cut the music right away so the defeat jingle stands out
+        if (SoundLibrary.Instance != null)
+            SoundLibrary.Instance.StopMusic();
+
         StartCoroutine(LoseAfterDelay(2f));
     }
 
@@ -138,6 +152,12 @@ public class GameManager : MonoBehaviour
         yield return new WaitForSeconds(delay);
         SaveBestScore();
         SetState(GameState.Lost);
+
+        if (SoundLibrary.Instance != null)
+        {
+            SoundLibrary.Instance.StopAllSFX();
+            SoundLibrary.Instance.PlaySFX("Defeat_Jingle");
+        }
         _losingInProgress = false;
     }
 

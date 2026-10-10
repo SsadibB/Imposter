@@ -59,6 +59,9 @@ public class WolfController : MonoBehaviour
     {
         _bleatTimer = 1.2f;
         if (bleatBubble) bleatBubble.SetActive(true);
+
+        if (SoundLibrary.Instance != null && GameManager.Instance != null && GameManager.Instance.IsPlaying())
+            SoundLibrary.Instance.PlaySFX("Sheep_Bleat");
     }
 
     public void BeginCommand(CommandType cmd)

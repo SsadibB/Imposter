@@ -43,6 +43,9 @@ public class AimController : MonoBehaviour
     private float _wobbleTime = 0f;
     private float _muzzleFlashTimer = 0f;
     private int _poofIndex = 0;
+    private bool _alertSoundPlayed = false;
+    private float _lastAlertSoundTime = -10f;
+    private const float AlertSoundMinGap = 0.6f;
 
     // Preallocated buffer for sorting without GC
     private SheepStatus[] _aliveBuffer;
@@ -66,6 +69,7 @@ public class AimController : MonoBehaviour
                 ownerAlertMark.SetActive(false);
             if (laserVisual != null)
                 laserVisual.SetLaserVisible(false);
+            _alertSoundPlayed = false;
             return;
         }
 
@@ -99,6 +103,7 @@ public class AimController : MonoBehaviour
         if (_currentTarget == null || !_currentTarget.alive)
         {
             _lockProgress = 0f;
+            _alertSoundPlayed = false;
             if (aimLockFill) aimLockFill.fillAmount = 0f;
             if (laserVisual != null) laserVisual.SetLaserVisible(false);
             return;
@@ -134,6 +139,22 @@ public class AimController : MonoBehaviour
         if (aimLockFill)
         {
             aimLockFill.fillAmount = _lockProgress;
+        }
+
+        // Alert_Lock: play once each time the owner starts locking on
+        if (_lockProgress > 0f)
+        {
+            if (!_alertSoundPlayed && Time.time - _lastAlertSoundTime >= AlertSoundMinGap)
+            {
+                _alertSoundPlayed = true;
+                _lastAlertSoundTime = Time.time;
+                if (SoundLibrary.Instance != null)
+                    SoundLibrary.Instance.PlaySFX("Alert_Lock");
+            }
+        }
+        else
+        {
+            _alertSoundPlayed = false;
         }
 
         // Check if locked and shoot
@@ -237,8 +258,13 @@ public class AimController : MonoBehaviour
     private void Shoot(SheepStatus target)
     {
         _lockProgress = 0f;
+        _alertSoundPlayed = false;
         if (aimLockFill) aimLockFill.fillAmount = 0f;
         _cooldownLeft = shotCooldown;
+
+        // Gun_Shot fires the moment the owner shoots
+        if (SoundLibrary.Instance != null)
+            SoundLibrary.Instance.PlaySFX("Gun_Shot");
 
         // Muzzle Flash
         if (ownerMuzzleFlash)
@@ -300,6 +326,12 @@ public class AimController : MonoBehaviour
             {
                 gameManager.Lose();
             }
+        }
+        else
+        {
+            // Wrong_Kill: the owner shot an innocent sheep
+            if (SoundLibrary.Instance != null)
+                SoundLibrary.Instance.PlaySFX("Wrong_Kill");
         }
         // Normal sheep: they will recover automatically via SheepStatus.BurnRecoverRoutine
         // No suspicion wipe — rounds are infinite and the flock stays in play

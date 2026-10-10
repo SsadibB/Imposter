@@ -37,6 +37,10 @@ public class SheepAI : MonoBehaviour
     private float _ySortTimer = 0f;
     private const float YSortInterval = 0.1f;
 
+    // Shared across all sheep so a whole flock bleating together doesn't spam the audio pool
+    private static float _lastBleatSfxTime = -10f;
+    private const float BleatSfxMinGap = 0.15f;
+
     void Awake()
     {
         if (status == null) status = GetComponent<SheepStatus>();
@@ -202,6 +206,7 @@ public class SheepAI : MonoBehaviour
                     {
                         _bleatInterval = 1.0f;
                         if (bleatBubble) bleatBubble.SetActive(true);
+                        PlayBleatSound();
                     }
                     else if (_bleatInterval < 0.3f && bleatBubble)
                     {
@@ -216,6 +221,21 @@ public class SheepAI : MonoBehaviour
             if (bleatBubble) bleatBubble.SetActive(false);
             ResetHeadVisual();
             UpdateWander();
+        }
+    }
+
+    private void PlayBleatSound()
+    {
+        if (SoundLibrary.Instance == null) return;
+        if (Time.time - _lastBleatSfxTime < BleatSfxMinGap) return;
+        _lastBleatSfxTime = Time.time;
+
+        AudioSource src = SoundLibrary.Instance.PlaySFX("Sheep_Bleat");
+        if (src != null)
+        {
+            // Slight pitch variation so each sheep sounds different, and a bit quieter than the player's bleat
+            src.pitch = Random.Range(0.9f, 1.15f);
+            src.volume *= 0.7f;
         }
     }
 
