@@ -49,7 +49,8 @@ public class OwnerPatrol : MonoBehaviour
 
     void Update()
     {
-        if (MatchSession.Playing && (!MatchSession.Instance.IsAuthority || MatchSession.Instance.UsesHumanAim))
+        // Skip patrol on non-owner clients in 1vs1 — their view of the owner is driven by the server snapshot.
+        if (MatchSession.Playing && !MatchSession.Instance.IsAuthority && !MatchSession.Instance.LocalIsOwner)
             return;
 
         GameState state = GameManager.Instance != null ? GameManager.Instance.state : GameState.Start;

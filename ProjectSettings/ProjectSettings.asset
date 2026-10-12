@@ -13,7 +13,7 @@ PlayerSettings:
   useOnDemandResources: 0
   accelerometerFrequency: 60
   companyName: NakamaGames
-  productName: NoWay
+  productName: Imposter
   defaultCursor: {fileID: 0}
   cursorHotspot: {x: 0, y: 0}
   m_SplashScreenBackgroundColor: {r: 0.12156863, g: 0.12156863, b: 0.1254902, a: 1}
@@ -163,7 +163,8 @@ PlayerSettings:
   androidSupportedAspectRatio: 1
   androidMaxAspectRatio: 2.4
   androidMinAspectRatio: 1
-  applicationIdentifier: {}
+  applicationIdentifier:
+    Android: com.NakamaGames.Imposter
   buildNumber:
     Standalone: 0
     VisionOS: 0
@@ -504,7 +505,10 @@ PlayerSettings:
   m_BuildTargetGroupLightmapSettings: []
   m_BuildTargetGroupLoadStoreDebugModeSettings: []
   m_BuildTargetNormalMapEncoding: []
-  m_BuildTargetDefaultTextureCompressionFormat: []
+  m_BuildTargetDefaultTextureCompressionFormat:
+  - serializedVersion: 3
+    m_BuildTarget: Android
+    m_Formats: 01000000
   playModeTestRunnerEnabled: 0
   runPlayModeTestAsEditModeTest: 0
   actionOnDotNetUnhandledException: 1
@@ -771,7 +775,7 @@ PlayerSettings:
   webWasm2023: 0
   webEnableSubmoduleStrippingCompatibility: 0
   scriptingDefineSymbols:
-    Android: FUSION_WEAVER;FUSION2;FUSION_2;FUSION_2_1;FUSION_2_1_3;FUSION_2_OR_NEWER;FUSION_2_0_OR_NEWER;FUSION_2_1_OR_NEWER;FUSION_LOGLEVEL_INFO;DOTWEEN
+    Android: FUSION_WEAVER;FUSION2;FUSION_2;FUSION_2_1;FUSION_2_1_3;FUSION_2_OR_NEWER;FUSION_2_0_OR_NEWER;FUSION_2_1_OR_NEWER;FUSION_LOGLEVEL_INFO;DOTWEEN;PHOTON_REALTIME_5_OR_NEWER
     EmbeddedLinux: FUSION_WEAVER;FUSION2;FUSION_2;FUSION_2_1;FUSION_2_1_3;FUSION_2_OR_NEWER;FUSION_2_0_OR_NEWER;FUSION_2_1_OR_NEWER;FUSION_LOGLEVEL_INFO;DOTWEEN
     GameCoreScarlett: FUSION_WEAVER;FUSION2;FUSION_2;FUSION_2_1;FUSION_2_1_3;FUSION_2_OR_NEWER;FUSION_2_0_OR_NEWER;FUSION_2_1_OR_NEWER;FUSION_LOGLEVEL_INFO;DOTWEEN
     GameCoreXboxOne: FUSION_WEAVER;FUSION2;FUSION_2;FUSION_2_1;FUSION_2_1_3;FUSION_2_OR_NEWER;FUSION_2_0_OR_NEWER;FUSION_2_1_OR_NEWER;FUSION_LOGLEVEL_INFO;DOTWEEN

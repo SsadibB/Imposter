@@ -181,6 +181,10 @@ public class MatchSession : MonoBehaviour, INetworkRunnerCallbacks
     bool _appliedActive;
     CommandType _appliedCmd;
 
+    // Click-to-aim state (owner device, 1vs1)
+    SheepStatus _aimClickTarget;
+    float _aimClickTimer;
+
     Font _font;
     GameObject _root;
     GameObject _dim;
@@ -453,7 +457,7 @@ public class MatchSession : MonoBehaviour, INetworkRunnerCallbacks
         if (aim == null) return;
         Vector2 pos = LocalIsOwner ? StepAim(aim) : _remoteAim;
         aim.PlaceAim(pos);
-        MoveOwnerX(pos.x);
+        // Owner position is driven by OwnerPatrol independently — do NOT call MoveOwnerX here.
         if (LocalIsOwner && _shootEdge)
         {
             _shootEdge = false;
@@ -471,7 +475,7 @@ public class MatchSession : MonoBehaviour, INetworkRunnerCallbacks
         if (aim == null) return;
         Vector2 pos = StepAim(aim);
         aim.PlaceAim(pos);
-        MoveOwnerX(pos.x);
+        // Owner position is driven by OwnerPatrol independently — do NOT call MoveOwnerX here.
     }
 
     int LocalId => _runner != null ? _runner.LocalPlayer.PlayerId : None;
@@ -932,12 +936,102 @@ public class MatchSession : MonoBehaviour, INetworkRunnerCallbacks
     Vector2 StepAim(AimController aim)
     {
         Vector2 pos = aim.aimRect != null ? aim.aimRect.anchoredPosition : _aimPos;
-        Vector2 move = ReadStick();
-        if (move.sqrMagnitude > 0.0001f)
-            pos += move * 720f * Time.deltaTime;
+
+        // Click / tap: find nearest sheep to screen tap and make it the aim target
+        bool tapped = false;
+        Vector2 tapScreen = Vector2.zero;
+        if (Input.GetMouseButtonDown(0))
+        {
+            tapped = true;
+            tapScreen = Input.mousePosition;
+        }
+        else if (Input.touchCount > 0)
+        {
+            Touch t = Input.GetTouch(0);
+            if (t.phase == TouchPhase.Began)
+            {
+                tapped = true;
+                tapScreen = t.position;
+            }
+        }
+
+        if (tapped && aim.aimRect != null && aim.allSheep != null)
+        {
+            // Convert screen tap to canvas anchored coordinates using the aim rect's canvas
+            Canvas canvas = aim.aimRect.GetComponentInParent<Canvas>();
+            if (canvas != null)
+            {
+                Vector2 localPoint;
+                RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                    canvas.transform as RectTransform, tapScreen,
+                    canvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : canvas.worldCamera,
+                    out localPoint);
+
+                // Find closest sheep to tap point
+                SheepStatus closest = null;
+                float bestDist = float.MaxValue;
+                for (int i = 0; i < aim.allSheep.Length; i++)
+                {
+                    SheepStatus sheep = aim.allSheep[i];
+                    if (sheep == null || !sheep.alive || sheep.rect == null) continue;
+                    float d = Vector2.Distance(localPoint, sheep.rect.anchoredPosition);
+                    if (d < bestDist)
+                    {
+                        bestDist = d;
+                        closest = sheep;
+                    }
+                }
+
+                if (closest != null && bestDist < 200f)
+                {
+                    _aimClickTarget = closest;
+                    _aimClickTimer = 0.25f; // smooth travel time
+                }
+            }
+        }
+
+        // Move aim toward clicked sheep target (smooth travel; after arrival, aim follows the sheep)
+        if (_aimClickTarget != null && _aimClickTarget.alive && _aimClickTarget.rect != null)
+        {
+            if (_aimClickTimer > 0f)
+            {
+                // Still travelling: slide smoothly
+                _aimClickTimer -= Time.deltaTime;
+                float speed = Vector2.Distance(pos, _aimClickTarget.rect.anchoredPosition) / Mathf.Max(0.01f, _aimClickTimer);
+                speed = Mathf.Max(speed, 600f);
+                pos = Vector2.MoveTowards(pos, _aimClickTarget.rect.anchoredPosition, speed * Time.deltaTime);
+            }
+            else
+            {
+                // Arrived: follow the sheep as it moves
+                pos = _aimClickTarget.rect.anchoredPosition;
+            }
+        }
+        else
+        {
+            // No selected sheep — fallback to stick / keyboard drift
+            Vector2 move = ReadStick();
+            if (move.sqrMagnitude > 0.0001f)
+            {
+                pos += move * 720f * Time.deltaTime;
+                _aimClickTarget = null; // cancel selection when using stick
+            }
+        }
+
         pos = ClampField(pos);
         _aimPos = pos;
         _aimReady = true;
+
+        // Owner HUD: always show the selected sheep's live suspicion so the
+        // player can see how suspicious the sheep they are looking at is.
+        if (_hud != null && LocalIsOwner)
+        {
+            if (_aimClickTarget != null && _aimClickTarget.alive)
+                _hud.UpdateSuspicion(_aimClickTarget.suspicion);
+            else
+                _hud.UpdateSuspicion(0f);
+        }
+
         return pos;
     }
 

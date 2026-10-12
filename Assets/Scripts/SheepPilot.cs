@@ -185,7 +185,10 @@ public class SheepPilot : MonoBehaviour
 
         Vector2 delta = status.rect.anchoredPosition - startPos;
         status.velocity = (Time.deltaTime > 0f) ? (delta / Time.deltaTime) : Vector2.zero;
-        status.Tick(Time.deltaTime);
+        // Only tick suspicion locally when we are the authority (solo/AI mode).
+        // In multiplayer the server snapshot is the source of truth for suspicion.
+        if (!MatchSession.Playing || MatchSession.Instance.IsAuthority)
+            status.Tick(Time.deltaTime);
 
         if (_hasCommand && roundController && roundController.CommandActive)
         {
