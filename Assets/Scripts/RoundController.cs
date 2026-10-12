@@ -32,6 +32,7 @@ public class RoundController : MonoBehaviour
     private const int StreakMax = 4; // inclusive
     private int _correctStreak = 0;
     private int _streakTarget = StreakMin;
+    private int[] _aliveOrder = new int[8];
 
     private static readonly string[] CommandDisplayTexts = {
         "HEADS UP",
@@ -41,6 +42,30 @@ public class RoundController : MonoBehaviour
         "MAKE SOUNDS",
         "ALL STOP"
     };
+
+    public void ResetForMenu()
+    {
+        Round = 0;
+        _inIntermission = false;
+        _intermissionTimer = 0f;
+        CommandActive = false;
+        GraceOver = false;
+        TimerRemaining = 0f;
+        _correctStreak = 0;
+
+        if (normalSheep != null)
+        {
+            for (int i = 0; i < normalSheep.Length; i++)
+            {
+                if (normalSheep[i] != null)
+                    normalSheep[i].EndCommand();
+            }
+        }
+        if (wolf != null) wolf.EndCommand();
+        if (hudController) hudController.HideCommand();
+        if (SoundLibrary.Instance != null)
+            SoundLibrary.Instance.StopSFX("Sheep_Graze");
+    }
 
     public void OnPlay()
     {
@@ -52,9 +77,44 @@ public class RoundController : MonoBehaviour
         StartIntermission();
     }
 
+    public void ApplyRemote(int round, int cmd, bool active, bool grace, float remaining, float window)
+    {
+        CommandType next = (CommandType)Mathf.Clamp(cmd, 0, 5);
+        bool changed = (active != CommandActive) || (active && next != ActiveCommand);
+        Round = round;
+        ActiveCommand = next;
+        CommandActive = active;
+        GraceOver = grace;
+        TimerRemaining = remaining;
+        WindowTime = Mathf.Max(0.25f, window);
+
+        if (hudController)
+        {
+            if (active)
+            {
+                if (changed)
+                    hudController.ShowCommand(CommandDisplayTexts[(int)next], round, round);
+                hudController.UpdateCommandBar(Mathf.Clamp01(remaining / WindowTime));
+            }
+            else if (changed)
+            {
+                hudController.HideCommand();
+            }
+        }
+
+        if (changed && SoundLibrary.Instance != null)
+        {
+            SoundLibrary.Instance.StopSFX("Sheep_Graze");
+            if (active && next == CommandType.HeadsDownGraze)
+                SoundLibrary.Instance.PlaySFX("Sheep_Graze", true);
+        }
+    }
+
     void Update()
     {
         if (gameManager == null || !gameManager.IsPlaying()) return;
+        if (MatchSession.Playing && !MatchSession.Instance.IsAuthority)
+            return;
 
         if (_inIntermission)
         {
@@ -125,41 +185,41 @@ public class RoundController : MonoBehaviour
 
         // Pick slow sheep — after round 12 all 3 slots are always hard
         int slowTargetCount = (Round <= 4) ? 1 : (Round <= 8) ? 2 : 3;
-        var aliveSheepIndices = new System.Collections.Generic.List<int>();
-        for (int i = 0; i < normalSheep.Length; i++)
+        int aliveCount = 0;
+        int sheepCount = normalSheep != null ? normalSheep.Length : 0;
+        if (_aliveOrder.Length < sheepCount)
+            _aliveOrder = new int[sheepCount];
+
+        for (int i = 0; i < sheepCount; i++)
         {
-            if (normalSheep[i] != null && normalSheep[i].status != null && normalSheep[i].status.alive && normalSheep[i].gameObject.activeSelf)
-            {
-                aliveSheepIndices.Add(i);
-            }
+            SheepAI sheep = normalSheep[i];
+            if (sheep != null && sheep.status != null && sheep.status.alive && sheep.gameObject.activeSelf)
+                _aliveOrder[aliveCount++] = i;
         }
 
-        // Shuffle alive sheep indices
-        for (int i = 0; i < aliveSheepIndices.Count; i++)
+        for (int i = 0; i < aliveCount; i++)
         {
-            int r = Random.Range(i, aliveSheepIndices.Count);
-            int tmp = aliveSheepIndices[i];
-            aliveSheepIndices[i] = aliveSheepIndices[r];
-            aliveSheepIndices[r] = tmp;
+            int r = Random.Range(i, aliveCount);
+            int tmp = _aliveOrder[i];
+            _aliveOrder[i] = _aliveOrder[r];
+            _aliveOrder[r] = tmp;
         }
 
-        int actualSlowCount = Mathf.Min(slowTargetCount, aliveSheepIndices.Count);
-        var slowIndicesSet = new System.Collections.Generic.HashSet<int>();
-        for (int i = 0; i < actualSlowCount; i++)
-        {
-            slowIndicesSet.Add(aliveSheepIndices[i]);
-        }
+        int actualSlowCount = Mathf.Min(slowTargetCount, aliveCount);
 
-        for (int i = 0; i < normalSheep.Length; i++)
+        for (int i = 0; i < sheepCount; i++)
         {
-            if (normalSheep[i] == null || !normalSheep[i].gameObject.activeSelf || (normalSheep[i].status != null && !normalSheep[i].status.alive)) continue;
+            SheepAI sheep = normalSheep[i];
+            if (sheep == null || !sheep.gameObject.activeSelf || (sheep.status != null && !sheep.status.alive)) continue;
 
             SheepBehaviorMode mode = SheepBehaviorMode.Normal;
-            if (slowIndicesSet.Contains(i))
+            for (int s = 0; s < actualSlowCount; s++)
             {
+                if (_aliveOrder[s] != i) continue;
                 mode = (Random.value < 0.5f) ? SheepBehaviorMode.Late : SheepBehaviorMode.Quitter;
+                break;
             }
-            normalSheep[i].BeginCommand(ActiveCommand, mode);
+            sheep.BeginCommand(ActiveCommand, mode);
         }
 
         if (wolf != null && (wolf.status == null || wolf.status.alive))

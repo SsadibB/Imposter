@@ -48,11 +48,29 @@ public class GameManager : MonoBehaviour
         if (SoundLibrary.Instance != null)
             SoundLibrary.Instance.PlayMusic("Main_BGM");
 
-        if (btnPlay) btnPlay.onClick.AddListener(OnPlayClicked);
-        if (btnRetry) btnRetry.onClick.AddListener(ReloadScene);
-        if (btnReplay) btnReplay.onClick.AddListener(ReloadScene);
+        if (btnPlay)
+        {
+            btnPlay.onClick.RemoveAllListeners();
+            btnPlay.onClick.AddListener(OpenModeSelect);
+        }
+        EnsureGameOverMenu();
+        EnsurePauseMenu();
+        if (btnRetry)
+        {
+            btnRetry.onClick.RemoveAllListeners();
+            btnRetry.onClick.AddListener(RetryRound);
+        }
+        if (btnReplay)
+        {
+            btnReplay.onClick.RemoveAllListeners();
+            btnReplay.onClick.AddListener(RetryRound);
+        }
         if (btnResume) btnResume.onClick.AddListener(OnResumeClicked);
-        if (btnRestart) btnRestart.onClick.AddListener(ReloadScene);
+        if (btnRestart)
+        {
+            btnRestart.onClick.RemoveAllListeners();
+            btnRestart.onClick.AddListener(RetryRound);
+        }
         if (btnPause) btnPause.onClick.AddListener(OnPauseClicked);
 
         if (hudController)
@@ -65,6 +83,9 @@ public class GameManager : MonoBehaviour
 
     void Update()
     {
+        if (MatchSession.Playing)
+            return;
+
         if (Input.GetKeyDown(KeyCode.Escape))
         {
             if (state == GameState.Playing)
@@ -72,6 +93,30 @@ public class GameManager : MonoBehaviour
             else if (state == GameState.Paused)
                 SetState(GameState.Playing);
         }
+    }
+
+    public void OpenModeSelect()
+    {
+        MatchSession.Ensure().OpenModes();
+    }
+
+    public void RetryRound()
+    {
+        StopAllCoroutines();
+        _losingInProgress = false;
+        Time.timeScale = 1f;
+        AudioListener.pause = false;
+        _score = 0;
+        if (hudController) hudController.UpdateScore(0);
+        if (roundController) roundController.ResetForMenu();
+        if (SoundLibrary.Instance != null)
+        {
+            SoundLibrary.Instance.StopSFX("Sheep_Graze");
+            SoundLibrary.Instance.PlayMusic("Main_BGM");
+        }
+        if (MatchSession.Instance != null)
+            MatchSession.Instance.RestartSolo();
+        OnPlayClicked();
     }
 
     public void OnPlayClicked()
@@ -85,6 +130,8 @@ public class GameManager : MonoBehaviour
 
     public void OnPauseClicked()
     {
+        if (MatchSession.Playing)
+            return;
         if (state == GameState.Playing)
             SetState(GameState.Paused);
     }
@@ -93,6 +140,84 @@ public class GameManager : MonoBehaviour
     {
         if (state == GameState.Paused)
             SetState(GameState.Playing);
+    }
+
+    void EnsureGameOverMenu()
+    {
+        if (btnRetry == null || btnRetry.transform.parent == null) return;
+        if (btnRetry.transform.parent.Find("Btn_Menu") != null) return;
+
+        RectTransform retry = btnRetry.GetComponent<RectTransform>();
+        float y = retry.anchoredPosition.y;
+        retry.anchoredPosition = new Vector2(-160f, y);
+        retry.sizeDelta = new Vector2(300f, retry.sizeDelta.y);
+
+        GameObject go = Instantiate(btnRetry.gameObject, btnRetry.transform.parent);
+        go.name = "Btn_Menu";
+        RectTransform rt = go.GetComponent<RectTransform>();
+        rt.anchoredPosition = new Vector2(160f, y);
+        rt.sizeDelta = new Vector2(300f, retry.sizeDelta.y);
+
+        Image image = go.GetComponent<Image>();
+        if (image != null) image.color = new Color(0.28f, 0.3f, 0.34f);
+
+        TMPro.TextMeshProUGUI label = go.GetComponentInChildren<TMPro.TextMeshProUGUI>();
+        if (label != null) label.text = "MAIN MENU";
+
+        Button button = go.GetComponent<Button>();
+        button.onClick = new Button.ButtonClickedEvent();
+        button.onClick.AddListener(ReturnToStartPanel);
+    }
+
+    void EnsurePauseMenu()
+    {
+        if (btnRestart == null || btnResume == null || btnRestart.transform.parent == null) return;
+        if (btnRestart.transform.parent.Find("Btn_MainMenu") != null) return;
+
+        RectTransform resume = btnResume.GetComponent<RectTransform>();
+        RectTransform restart = btnRestart.GetComponent<RectTransform>();
+        resume.anchoredPosition = new Vector2(0f, 20f);
+        restart.anchoredPosition = new Vector2(0f, -100f);
+
+        GameObject go = Instantiate(btnRestart.gameObject, btnRestart.transform.parent);
+        go.name = "Btn_MainMenu";
+        RectTransform rt = go.GetComponent<RectTransform>();
+        rt.anchoredPosition = new Vector2(0f, -210f);
+        rt.sizeDelta = new Vector2(restart.sizeDelta.x, 80f);
+
+        Image image = go.GetComponent<Image>();
+        if (image != null) image.color = new Color(0.28f, 0.3f, 0.34f);
+
+        TMPro.TextMeshProUGUI label = go.GetComponentInChildren<TMPro.TextMeshProUGUI>();
+        if (label != null) label.text = "MAIN MENU";
+
+        Button button = go.GetComponent<Button>();
+        button.onClick = new Button.ButtonClickedEvent();
+        button.onClick.AddListener(ReturnToStartPanel);
+    }
+
+    public void ReturnToStartPanel()
+    {
+        StopAllCoroutines();
+        _losingInProgress = false;
+        Time.timeScale = 1f;
+        AudioListener.pause = false;
+        _score = 0;
+        if (hudController) hudController.UpdateScore(0);
+        if (roundController) roundController.ResetForMenu();
+        if (SoundLibrary.Instance != null)
+        {
+            SoundLibrary.Instance.StopSFX("Sheep_Graze");
+            SoundLibrary.Instance.PlayMusic("Main_BGM");
+        }
+        SetState(GameState.Start);
+        if (btnPlay != null)
+        {
+            btnPlay.onClick.RemoveAllListeners();
+            btnPlay.onClick.AddListener(OpenModeSelect);
+        }
+        if (MatchSession.Instance != null)
+            MatchSession.Instance.ReturnToStart();
     }
 
     public void ReloadScene()
@@ -111,10 +236,15 @@ public class GameManager : MonoBehaviour
         AudioListener.pause = (newState == GameState.Paused);
 
         int roundsSurvived = roundController ? Mathf.Max(0, roundController.Round - 1) : 0;
+        bool inGame = newState == GameState.Playing || newState == GameState.Paused;
+        if (btnPause) btnPause.gameObject.SetActive(inGame);
         if (hudController)
         {
             hudController.ShowPanel(newState, _score, _bestScore, roundsSurvived);
+            hudController.SetPlayChrome(inGame);
         }
+        if (MatchSession.Instance != null)
+            MatchSession.Instance.RefreshControls();
     }
 
     public void AddScore(int amount)

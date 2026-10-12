@@ -1,5 +1,4 @@
 using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -9,6 +8,7 @@ public class SheepStatus : MonoBehaviour
     public bool isWolf = false;
     public bool isBad = false;
     public bool isBurned = false;
+    public bool diesForGood = false;
     public float suspicion = 0f; // 0..100
     public Vector2 velocity = Vector2.zero;
     public RectTransform rect;
@@ -20,13 +20,30 @@ public class SheepStatus : MonoBehaviour
     [Range(1f, 10f)]
     public float recoverDuration = 4f;
 
-    // Cache original colors for clean reset
-    private Dictionary<Image, Color> _origColors = new Dictionary<Image, Color>();
+    // Cached visual parts so burns don't search the hierarchy or allocate
+    private Image[] _images;
+    private Color[] _origColors;
+    private Color[] _charredColors;
+    private int[] _part;
     private Transform _visualTransform;
     private Vector3 _origVisualLocalPos;
     private Quaternion _origVisualLocalRot;
     private bool _cachedInitial = false;
     private Coroutine _burnRecoverRoutine;
+    private Coroutine _smokeRoutine;
+    private SmokePuff[] _smoke;
+
+    const int PartWool = 0;
+    const int PartShadow = 1;
+    const int PartHead = 2;
+    const int PartEye = 3;
+
+    struct SmokePuff
+    {
+        public GameObject go;
+        public RectTransform rect;
+        public Image image;
+    }
 
     void Awake()
     {
@@ -34,6 +51,12 @@ public class SheepStatus : MonoBehaviour
             rect = GetComponent<RectTransform>();
 
         CacheOriginalVisuals();
+        FlockDepthSort.Register(rect);
+    }
+
+    void OnDestroy()
+    {
+        FlockDepthSort.Unregister(rect);
     }
 
     private void CacheOriginalVisuals()
@@ -44,13 +67,21 @@ public class SheepStatus : MonoBehaviour
         {
             _origVisualLocalPos = _visualTransform.localPosition;
             _origVisualLocalRot = _visualTransform.localRotation;
-            Image[] images = _visualTransform.GetComponentsInChildren<Image>(true);
-            foreach (var img in images)
+            _images = _visualTransform.GetComponentsInChildren<Image>(true);
+            int n = _images.Length;
+            _origColors = new Color[n];
+            _charredColors = new Color[n];
+            _part = new int[n];
+            for (int i = 0; i < n; i++)
             {
-                if (img != null && !_origColors.ContainsKey(img))
-                {
-                    _origColors[img] = img.color;
-                }
+                Image img = _images[i];
+                if (img == null) continue;
+                _origColors[i] = img.color;
+                string name = img.gameObject.name;
+                if (name.IndexOf("Shadow") >= 0) _part[i] = PartShadow;
+                else if (name.IndexOf("Head") >= 0) _part[i] = PartHead;
+                else if (name.IndexOf("Eye") >= 0) _part[i] = PartEye;
+                else _part[i] = PartWool;
             }
         }
         _cachedInitial = true;
@@ -85,29 +116,27 @@ public class SheepStatus : MonoBehaviour
         CacheOriginalVisuals();
 
         // 1. Turn all visual parts to charred black
-        if (_visualTransform != null)
+        if (_images != null)
         {
-            Image[] images = _visualTransform.GetComponentsInChildren<Image>(true);
-            foreach (var img in images)
+            for (int i = 0; i < _images.Length; i++)
             {
+                Image img = _images[i];
                 if (img == null) continue;
 
-                string n = img.gameObject.name;
-                if (n.Contains("Shadow"))
+                switch (_part[i])
                 {
-                    img.color = new Color(0f, 0f, 0f, 0.45f);
-                }
-                else if (n.Contains("Head"))
-                {
-                    img.color = new Color(0.06f, 0.06f, 0.06f, 1f);
-                }
-                else if (n.Contains("Eye"))
-                {
-                    img.color = new Color(0.35f, 0.35f, 0.35f, 1f);
-                }
-                else
-                {
-                    img.color = new Color(0.12f, 0.12f, 0.12f, 1f);
+                    case PartShadow:
+                        img.color = new Color(0f, 0f, 0f, 0.45f);
+                        break;
+                    case PartHead:
+                        img.color = new Color(0.06f, 0.06f, 0.06f, 1f);
+                        break;
+                    case PartEye:
+                        img.color = new Color(0.35f, 0.35f, 0.35f, 1f);
+                        break;
+                    default:
+                        img.color = new Color(0.12f, 0.12f, 0.12f, 1f);
+                        break;
                 }
             }
 
@@ -137,10 +166,12 @@ public class SheepStatus : MonoBehaviour
         if (wolf != null) wolf.EndCommand();
 
         // 5. Rising smoke wisps
-        StartCoroutine(SmokeWispsRoutine());
+        if (_smokeRoutine != null)
+            StopCoroutine(_smokeRoutine);
+        _smokeRoutine = StartCoroutine(SmokeWispsRoutine());
 
         // 6. Recovery: wolf death is permanent; normal sheep recover after 3–5 s
-        if (!isWolf)
+        if (!isWolf && !diesForGood)
         {
             float burnTime = Mathf.Clamp(Random.Range(recoverDuration - 0.5f, recoverDuration + 0.5f), 3f, 5f);
             _burnRecoverRoutine = StartCoroutine(BurnRecoverRoutine(burnTime));
@@ -153,13 +184,12 @@ public class SheepStatus : MonoBehaviour
         yield return new WaitForSeconds(burnSeconds);
 
         // Snapshot charred colors for lerp
-        var charredColors = new Dictionary<Image, Color>();
-        if (_visualTransform != null)
+        if (_images != null)
         {
-            Image[] imgs = _visualTransform.GetComponentsInChildren<Image>(true);
-            foreach (var img in imgs)
+            for (int i = 0; i < _images.Length; i++)
             {
-                if (img != null) charredColors[img] = img.color;
+                if (_images[i] != null)
+                    _charredColors[i] = _images[i].color;
             }
         }
 
@@ -175,17 +205,18 @@ public class SheepStatus : MonoBehaviour
             elapsed += Time.deltaTime;
             float t = Mathf.Clamp01(elapsed / fadeDuration);
 
+            if (_images != null)
+            {
+                for (int i = 0; i < _images.Length; i++)
+                {
+                    Image img = _images[i];
+                    if (img == null) continue;
+                    img.color = Color.Lerp(_charredColors[i], _origColors[i], t);
+                }
+            }
+
             if (_visualTransform != null)
             {
-                Image[] imgs = _visualTransform.GetComponentsInChildren<Image>(true);
-                foreach (var img in imgs)
-                {
-                    if (img == null) continue;
-                    Color from = charredColors.TryGetValue(img, out Color c) ? c : img.color;
-                    Color to = _origColors.TryGetValue(img, out Color orig) ? orig : img.color;
-                    img.color = Color.Lerp(from, to, t);
-                }
-
                 _visualTransform.localEulerAngles = Vector3.Lerp(charredEuler, Vector3.zero, t);
                 _visualTransform.localPosition = Vector3.Lerp(charredPos, _origVisualLocalPos, t);
             }
@@ -201,32 +232,14 @@ public class SheepStatus : MonoBehaviour
 
     private IEnumerator SmokeWispsRoutine()
     {
-        Sprite knobSprite = null;
-        var allSprites = Resources.FindObjectsOfTypeAll<Sprite>();
-        for (int s = 0; s < allSprites.Length; s++)
+        EnsureSmoke();
+        for (int i = 0; i < _smoke.Length; i++)
         {
-            if (allSprites[s] != null && allSprites[s].name == "Knob")
-            {
-                knobSprite = allSprites[s];
-                break;
-            }
-        }
-        List<GameObject> smokePuffs = new List<GameObject>();
-
-        for (int i = 0; i < 3; i++)
-        {
-            GameObject puff = new GameObject("BurnSmoke_" + i, typeof(RectTransform), typeof(Image));
-            puff.transform.SetParent(transform, false);
-            RectTransform pr = puff.GetComponent<RectTransform>();
-            pr.pivot = new Vector2(0.5f, 0.5f);
-            pr.anchoredPosition = new Vector2(Random.Range(-20f, 20f), Random.Range(5f, 25f));
-            pr.sizeDelta = new Vector2(24f, 24f);
-
-            Image img = puff.GetComponent<Image>();
-            img.sprite = knobSprite;
-            img.color = new Color(0.2f, 0.2f, 0.2f, 0.7f);
-            img.raycastTarget = false;
-            smokePuffs.Add(puff);
+            SmokePuff puff = _smoke[i];
+            puff.go.SetActive(true);
+            puff.rect.anchoredPosition = new Vector2(Random.Range(-20f, 20f), Random.Range(5f, 25f));
+            puff.rect.localScale = Vector3.one;
+            puff.image.color = new Color(0.2f, 0.2f, 0.2f, 0.7f);
         }
 
         float duration = 1.8f;
@@ -236,25 +249,46 @@ public class SheepStatus : MonoBehaviour
         {
             elapsed += Time.deltaTime;
             float t = elapsed / duration;
+            float alpha = Mathf.Lerp(0.7f, 0f, t);
+            float scale = Mathf.Lerp(0.8f, 2.2f, t);
 
-            for (int i = 0; i < smokePuffs.Count; i++)
+            for (int i = 0; i < _smoke.Length; i++)
             {
-                if (smokePuffs[i] == null) continue;
-                RectTransform pr = smokePuffs[i].GetComponent<RectTransform>();
-                pr.anchoredPosition += new Vector2(Random.Range(-4f, 4f) * Time.deltaTime, 35f * Time.deltaTime);
-                float scale = Mathf.Lerp(0.8f, 2.2f, t);
-                pr.localScale = new Vector3(scale, scale, 1f);
-
-                Image img = smokePuffs[i].GetComponent<Image>();
-                img.color = new Color(0.18f, 0.18f, 0.18f, Mathf.Lerp(0.7f, 0f, t));
+                SmokePuff puff = _smoke[i];
+                if (puff.go == null) continue;
+                puff.rect.anchoredPosition += new Vector2(Random.Range(-4f, 4f) * Time.deltaTime, 35f * Time.deltaTime);
+                puff.rect.localScale = new Vector3(scale, scale, 1f);
+                puff.image.color = new Color(0.18f, 0.18f, 0.18f, alpha);
             }
 
             yield return null;
         }
 
-        foreach (var p in smokePuffs)
+        for (int i = 0; i < _smoke.Length; i++)
         {
-            if (p != null) Destroy(p);
+            if (_smoke[i].go != null)
+                _smoke[i].go.SetActive(false);
+        }
+        _smokeRoutine = null;
+    }
+
+    private void EnsureSmoke()
+    {
+        if (_smoke != null) return;
+        _smoke = new SmokePuff[3];
+        Sprite sprite = RuntimeSprites.Circle;
+        for (int i = 0; i < _smoke.Length; i++)
+        {
+            GameObject puff = new GameObject("BurnSmoke", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            puff.transform.SetParent(transform, false);
+            RectTransform pr = puff.GetComponent<RectTransform>();
+            pr.pivot = new Vector2(0.5f, 0.5f);
+            pr.sizeDelta = new Vector2(24f, 24f);
+            Image img = puff.GetComponent<Image>();
+            img.sprite = sprite;
+            img.raycastTarget = false;
+            puff.SetActive(false);
+            _smoke[i] = new SmokePuff { go = puff, rect = pr, image = img };
         }
     }
 
@@ -263,6 +297,7 @@ public class SheepStatus : MonoBehaviour
         alive = true;
         isBad = false;
         isBurned = false;
+        diesForGood = false;
         suspicion = 0f;
         velocity = Vector2.zero;
 
@@ -271,11 +306,12 @@ public class SheepStatus : MonoBehaviour
             _visualTransform.localPosition = _origVisualLocalPos;
             _visualTransform.localRotation = _origVisualLocalRot;
 
-            foreach (var kvp in _origColors)
+            if (_images != null)
             {
-                if (kvp.Key != null)
+                for (int i = 0; i < _images.Length; i++)
                 {
-                    kvp.Key.color = kvp.Value;
+                    if (_images[i] != null)
+                        _images[i].color = _origColors[i];
                 }
             }
         }

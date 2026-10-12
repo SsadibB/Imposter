@@ -64,12 +64,17 @@ public class LaserAimVisual : MonoBehaviour
         BuildVisuals();
     }
 
+    private static Sprite[] _builtinSprites;
+
     private static Sprite FindBuiltinSprite(string name)
     {
-        var sprites = Resources.FindObjectsOfTypeAll<Sprite>();
-        for (int i = 0; i < sprites.Length; i++)
+        if (_builtinSprites == null)
+            _builtinSprites = Resources.FindObjectsOfTypeAll<Sprite>();
+
+        for (int i = 0; i < _builtinSprites.Length; i++)
         {
-            if (sprites[i] != null && sprites[i].name == name) return sprites[i];
+            if (_builtinSprites[i] != null && _builtinSprites[i].name == name)
+                return _builtinSprites[i];
         }
         return null;
     }

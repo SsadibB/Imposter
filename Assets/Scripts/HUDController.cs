@@ -63,9 +63,14 @@ public class HUDController : MonoBehaviour
         HideStatus();
     }
 
+    private int _statusShown = -1;
+
     public void ShowStatus(bool isGood)
     {
         if (textStatus == null) return;
+        int key = isGood ? 1 : 0;
+        if (_statusShown == key) return;
+        _statusShown = key;
         if (!textStatus.gameObject.activeSelf) textStatus.gameObject.SetActive(true);
         textStatus.text = isGood ? "GOOD!" : "WRONG!";
         textStatus.color = isGood ? colorLow : colorHigh;
@@ -73,10 +78,10 @@ public class HUDController : MonoBehaviour
 
     public void HideStatus()
     {
+        if (_statusShown == -1) return;
+        _statusShown = -1;
         if (textStatus && textStatus.gameObject.activeSelf)
-        {
             textStatus.gameObject.SetActive(false);
-        }
     }
 
     public void UpdateRound(int currentRound, int maxRounds)
@@ -130,6 +135,33 @@ public class HUDController : MonoBehaviour
             else
                 barSuspFill.color = colorHigh;
         }
+    }
+
+    public void SetPlayChrome(bool show)
+    {
+        if (textRound) textRound.gameObject.SetActive(show);
+        if (commandPanel) commandPanel.SetActive(show);
+        SetNamedRoot(barSuspFill, "SuspicionPanel", show);
+        SetNamedRoot(textScore, "ScorePanel", show);
+        if (!show)
+        {
+            if (textCommand) textCommand.text = "";
+            if (barCommandFill) barCommandFill.fillAmount = 0f;
+            if (barSuspFill) barSuspFill.fillAmount = 0f;
+            _cachedCommandFill = -1f;
+            _cachedSuspNormalized = -1f;
+            _cachedRound = -1;
+            HideStatus();
+        }
+    }
+
+    static void SetNamedRoot(Component leaf, string rootName, bool show)
+    {
+        if (leaf == null) return;
+        Transform node = leaf.transform;
+        while (node != null && node.name != rootName)
+            node = node.parent;
+        if (node != null) node.gameObject.SetActive(show);
     }
 
     public void ShowPanel(GameState state, int finalScore, int bestScore, int roundsSurvived)

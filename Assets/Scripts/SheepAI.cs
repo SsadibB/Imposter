@@ -32,10 +32,9 @@ public class SheepAI : MonoBehaviour
     private Vector2 _scatterDir = Vector2.zero;
     private float _bleatInterval = 0f;
     private bool _facingRight = true;
-
-    // Y-sorting
-    private float _ySortTimer = 0f;
-    private const float YSortInterval = 0.1f;
+    private bool _grazeOn = false;
+    private bool _badOn = false;
+    private float _headZ = 0f;
 
     // Shared across all sheep so a whole flock bleating together doesn't spam the audio pool
     private static float _lastBleatSfxTime = -10f;
@@ -104,15 +103,19 @@ public class SheepAI : MonoBehaviour
         _hasCommand = false;
         _performing = false;
         if (status != null) status.isBad = false;
-        if (badMark) badMark.SetActive(false);
-        if (grazeFX) grazeFX.SetActive(false);
-        if (bleatBubble) bleatBubble.SetActive(false);
-        ResetHeadVisual();
+        SetBadMark(false);
+        SetGraze(false);
+        if (bleatBubble && bleatBubble.activeSelf) bleatBubble.SetActive(false);
+        SetHead(0f);
     }
 
     void Update()
     {
         if (status == null || !status.alive || !gameObject.activeSelf) return;
+        if (MatchSession.Playing && !MatchSession.Instance.ShouldRunAI(status))
+            return;
+        if (GameManager.Instance != null && !GameManager.Instance.IsPlaying() && _hasCommand)
+            EndCommand();
 
         Vector2 startPos = status.rect.anchoredPosition;
 
@@ -144,13 +147,7 @@ public class SheepAI : MonoBehaviour
             }
         }
 
-        // Y-Sort
-        _ySortTimer -= Time.deltaTime;
-        if (_ySortTimer <= 0f)
-        {
-            _ySortTimer = YSortInterval;
-            SortByY();
-        }
+        FlockDepthSort.RequestTick(Time.deltaTime);
     }
 
     private void UpdateCommandBehavior()
@@ -168,47 +165,47 @@ public class SheepAI : MonoBehaviour
         // Is Bad?
         bool graceOver = roundController ? roundController.GraceOver : false;
         status.isBad = (graceOver && !_performing);
-        if (badMark) badMark.SetActive(status.isBad);
+        SetBadMark(status.isBad);
 
         if (_performing)
         {
             switch (_activeCmd)
             {
                 case CommandType.HeadsUp:
-                    if (grazeFX) grazeFX.SetActive(false);
-                    if (head) head.localEulerAngles = new Vector3(0f, 0f, 25f);
+                    SetGraze(false);
+                    SetHead(25f);
                     break;
                 case CommandType.HeadsDownGraze:
-                    if (grazeFX) grazeFX.SetActive(true);
-                    if (head) head.localEulerAngles = new Vector3(0f, 0f, -25f);
+                    SetGraze(true);
+                    SetHead(-25f);
                     break;
                 case CommandType.WalkSlowly:
-                    if (grazeFX) grazeFX.SetActive(false);
-                    ResetHeadVisual();
+                    SetGraze(false);
+                    SetHead(0f);
                     UpdateWanderSlow();
                     break;
                 case CommandType.AllStop:
-                    if (grazeFX) grazeFX.SetActive(false);
-                    ResetHeadVisual();
+                    SetGraze(false);
+                    SetHead(0f);
                     break;
                 case CommandType.Scatter:
-                    if (grazeFX) grazeFX.SetActive(false);
-                    ResetHeadVisual();
+                    SetGraze(false);
+                    SetHead(0f);
                     _scatterTimer -= Time.deltaTime;
                     if (_scatterTimer <= 0f) PickNewScatterDir();
                     MoveTowardsPosition(status.rect.anchoredPosition + _scatterDir * scatterSpeed * Time.deltaTime, scatterSpeed);
                     break;
                 case CommandType.MakeSounds:
-                    if (grazeFX) grazeFX.SetActive(false);
-                    ResetHeadVisual();
+                    SetGraze(false);
+                    SetHead(0f);
                     _bleatInterval -= Time.deltaTime;
                     if (_bleatInterval <= 0f)
                     {
                         _bleatInterval = 1.0f;
-                        if (bleatBubble) bleatBubble.SetActive(true);
+                        if (bleatBubble && !bleatBubble.activeSelf) bleatBubble.SetActive(true);
                         PlayBleatSound();
                     }
-                    else if (_bleatInterval < 0.3f && bleatBubble)
+                    else if (_bleatInterval < 0.3f && bleatBubble && bleatBubble.activeSelf)
                     {
                         bleatBubble.SetActive(false);
                     }
@@ -217,11 +214,32 @@ public class SheepAI : MonoBehaviour
         }
         else
         {
-            if (grazeFX) grazeFX.SetActive(false);
-            if (bleatBubble) bleatBubble.SetActive(false);
-            ResetHeadVisual();
+            SetGraze(false);
+            if (bleatBubble && bleatBubble.activeSelf) bleatBubble.SetActive(false);
+            SetHead(0f);
             UpdateWander();
         }
+    }
+
+    private void SetGraze(bool on)
+    {
+        if (_grazeOn == on) return;
+        _grazeOn = on;
+        if (grazeFX) grazeFX.SetActive(on);
+    }
+
+    private void SetHead(float z)
+    {
+        if (Mathf.Abs(_headZ - z) < 0.01f) return;
+        _headZ = z;
+        if (head) head.localEulerAngles = new Vector3(0f, 0f, z);
+    }
+
+    private void SetBadMark(bool on)
+    {
+        if (_badOn == on) return;
+        _badOn = on;
+        if (badMark) badMark.SetActive(on);
     }
 
     private void PlayBleatSound()
@@ -237,12 +255,6 @@ public class SheepAI : MonoBehaviour
             src.pitch = Random.Range(0.9f, 1.15f);
             src.volume *= 0.7f;
         }
-    }
-
-    private void ResetHeadVisual()
-    {
-        if (head && head.localEulerAngles != Vector3.zero)
-            head.localEulerAngles = Vector3.zero;
     }
 
     private void UpdateWander()
@@ -309,31 +321,5 @@ public class SheepAI : MonoBehaviour
     {
         _scatterTimer = 0.7f;
         _scatterDir = Random.insideUnitCircle.normalized;
-    }
-
-    private void SortByY()
-    {
-        Transform parent = transform.parent;
-        if (parent == null) return;
-
-        float myY = status.rect.anchoredPosition.y;
-        int currentIdx = transform.GetSiblingIndex();
-        int newIdx = 0;
-        int count = parent.childCount;
-
-        for (int i = 0; i < count; i++)
-        {
-            if (i == currentIdx) continue;
-            RectTransform sib = parent.GetChild(i) as RectTransform;
-            if (sib != null && sib.anchoredPosition.y > myY)
-            {
-                newIdx = i + 1;
-            }
-        }
-
-        if (newIdx != currentIdx)
-        {
-            transform.SetSiblingIndex(newIdx);
-        }
     }
 }

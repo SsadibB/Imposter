@@ -18,6 +18,7 @@ public class OwnerPatrol : MonoBehaviour
     private RectTransform _rect;
     private bool _movingRight = true;
     private float _pauseTimer = 0f;
+    private bool _bobIdle = true;
     private Vector2 _initialBodyPos;
     private Vector2 _initialLegsPos;
 
@@ -48,18 +49,24 @@ public class OwnerPatrol : MonoBehaviour
 
     void Update()
     {
-        if (GameManager.Instance == null || !GameManager.Instance.IsPlaying())
+        if (MatchSession.Playing && (!MatchSession.Instance.IsAuthority || MatchSession.Instance.UsesHumanAim))
+            return;
+
+        GameState state = GameManager.Instance != null ? GameManager.Instance.state : GameState.Start;
+        bool walk = state == GameState.Start || state == GameState.Playing;
+        if (!walk || _pauseTimer > 0f)
         {
-            ResetBob();
+            if (_pauseTimer > 0f)
+                _pauseTimer -= Time.deltaTime;
+            if (!_bobIdle)
+            {
+                ResetBob();
+                _bobIdle = true;
+            }
             return;
         }
 
-        if (_pauseTimer > 0f)
-        {
-            _pauseTimer -= Time.deltaTime;
-            ResetBob();
-            return;
-        }
+        _bobIdle = false;
 
         float currentX = _rect.anchoredPosition.x;
         float targetX = _movingRight ? maxX : minX;

@@ -50,12 +50,22 @@ public class AimController : MonoBehaviour
     // Preallocated buffer for sorting without GC
     private SheepStatus[] _aliveBuffer;
 
+    private RectTransform[] _poofRects;
+
     void Awake()
     {
         _aliveBuffer = new SheepStatus[9];
         if (laserVisual == null)
-        {
             laserVisual = FindFirstObjectByType<LaserAimVisual>();
+
+        if (fxPoofs != null)
+        {
+            _poofRects = new RectTransform[fxPoofs.Length];
+            for (int i = 0; i < fxPoofs.Length; i++)
+            {
+                if (fxPoofs[i] != null)
+                    _poofRects[i] = fxPoofs[i].GetComponent<RectTransform>();
+            }
         }
     }
 
@@ -86,6 +96,25 @@ public class AimController : MonoBehaviour
             }
         }
 
+        if (MatchSession.Playing)
+        {
+            MatchSession match = MatchSession.Instance;
+            if (match.UsesHumanAim)
+            {
+                if (match.IsAuthority)
+                    match.TickHumanAim(this);
+                else if (match.LocalIsOwner)
+                    match.TickLocalOwnerAim(this);
+                PresentAimVisuals();
+                return;
+            }
+            if (!match.IsAuthority)
+            {
+                PresentAimVisuals();
+                return;
+            }
+        }
+
         // Current round difficulty
         int round = roundController ? roundController.Round : 1;
         float diffT = Mathf.Clamp01((round - 1) / 11f);
@@ -99,6 +128,11 @@ public class AimController : MonoBehaviour
             _targetCheckTimer = 0.25f;
             UpdateTargetSelection(dt);
         }
+
+        // A full bar pulls the gun onto that sheep. The shot waits until the gun arrives.
+        SheepStatus fullSuspicion = FindFullSuspicionSheep();
+        if (fullSuspicion != null)
+            _currentTarget = fullSuspicion;
 
         if (_currentTarget == null || !_currentTarget.alive)
         {
@@ -118,6 +152,16 @@ public class AimController : MonoBehaviour
         Vector2 currentAimPos = aimRect.anchoredPosition;
         aimRect.anchoredPosition = Vector2.MoveTowards(currentAimPos, desiredPos, currentAimSpeed * dt);
 
+        // Fire only when the gun is on the suspicious sheep, not while it is still sweeping past the others.
+        if (fullSuspicion != null && _currentTarget == fullSuspicion && _cooldownLeft <= 0f &&
+            !(MatchSession.Playing && !MatchSession.Instance.AcceptsFire) &&
+            GunIsOn(fullSuspicion))
+        {
+            PresentAimVisuals();
+            Shoot(fullSuspicion);
+            return;
+        }
+
         // 3. Lock-On
         float distToTarget = Vector2.Distance(aimRect.anchoredPosition, _currentTarget.rect.anchoredPosition);
         bool isClose = distToTarget < closeDistance;
@@ -134,7 +178,9 @@ public class AimController : MonoBehaviour
         {
             _lockProgress -= (2f * dt) / currentLockTime;
         }
-        _lockProgress = Mathf.Clamp01(_lockProgress);
+        // The lock ring can only finish when the suspicion bar itself is full.
+        float suspicionCap = Mathf.Clamp01(_currentTarget.suspicion / 100f);
+        _lockProgress = Mathf.Clamp(_lockProgress, 0f, suspicionCap);
 
         if (aimLockFill)
         {
@@ -157,14 +203,62 @@ public class AimController : MonoBehaviour
             _alertSoundPlayed = false;
         }
 
-        // Check if locked and shoot
-        if (_lockProgress >= 1f)
-        {
-            Shoot(_currentTarget);
-            return;
-        }
+        PresentAimVisuals();
+    }
 
-        // 4. Visuals (Gun rotation, Alert Mark, Warning, Laser Line)
+    public void PlaceAim(Vector2 anchored)
+    {
+        if (aimRect)
+            aimRect.anchoredPosition = anchored;
+    }
+
+    public void ApplyRemoteLock(float lock01)
+    {
+        _lockProgress = Mathf.Clamp01(lock01);
+        if (aimLockFill)
+            aimLockFill.fillAmount = _lockProgress;
+        if (_currentTarget == null && allSheep != null)
+        {
+            for (int i = 0; i < allSheep.Length; i++)
+            {
+                if (allSheep[i] != null && allSheep[i].isWolf)
+                {
+                    _currentTarget = allSheep[i];
+                    break;
+                }
+            }
+        }
+    }
+
+    public void FireAtPoint(Vector2 anchored)
+    {
+        if (_cooldownLeft > 0f || allSheep == null)
+            return;
+        if (MatchSession.Playing && !MatchSession.Instance.AcceptsFire)
+            return;
+
+        SheepStatus best = null;
+        float bestD = 130f;
+        for (int i = 0; i < allSheep.Length; i++)
+        {
+            SheepStatus sheep = allSheep[i];
+            if (sheep == null || !sheep.alive || sheep.rect == null)
+                continue;
+            float d = Vector2.Distance(anchored, sheep.rect.anchoredPosition);
+            if (d < bestD)
+            {
+                bestD = d;
+                best = sheep;
+            }
+        }
+        if (best == null)
+            return;
+        _currentTarget = best;
+        Shoot(best);
+    }
+
+    private void PresentAimVisuals()
+    {
         Vector3 worldGun = ownerGun ? ownerGun.position : Vector3.zero;
         Vector3 worldAim = aimRect ? aimRect.position : Vector3.zero;
 
@@ -175,23 +269,24 @@ public class AimController : MonoBehaviour
             ownerGun.eulerAngles = new Vector3(0f, 0f, angle);
         }
 
-        if (ownerAlertMark)
-        {
+        if (ownerAlertMark && ownerAlertMark.activeSelf != (_lockProgress > 0f))
             ownerAlertMark.SetActive(_lockProgress > 0f);
-        }
 
-        // Laser aiming line visible from weapon to target
         if (laserVisual != null)
         {
-            Vector3 muzzlePos = (ownerMuzzleFlash && ownerMuzzleFlash.transform != null) 
-                ? ownerMuzzleFlash.transform.position 
+            Vector3 muzzlePos = (ownerMuzzleFlash && ownerMuzzleFlash.transform != null)
+                ? ownerMuzzleFlash.transform.position
                 : worldGun;
-            laserVisual.UpdateLaser(true, _lockProgress, muzzlePos, worldAim);
+            laserVisual.UpdateLaser(aimRect != null, _lockProgress, muzzlePos, worldAim);
         }
 
-        // Warning_Aimed for player wolf
-        bool targetIsWolf = _currentTarget.isWolf;
-        bool showWarning = targetIsWolf && (_lockProgress > 0f || (isClose && _currentTarget.suspicion >= lockThreshold));
+        bool targetIsWolf = _currentTarget != null && _currentTarget.isWolf;
+        float dist = (_currentTarget != null && aimRect != null && _currentTarget.rect != null)
+            ? Vector2.Distance(aimRect.anchoredPosition, _currentTarget.rect.anchoredPosition)
+            : 999f;
+        bool isCloseNow = dist < closeDistance;
+        bool showWarning = targetIsWolf && _currentTarget != null &&
+                           (_lockProgress > 0f || (isCloseNow && _currentTarget.suspicion >= lockThreshold));
         if (warningAimed)
         {
             if (showWarning)
@@ -204,6 +299,31 @@ public class AimController : MonoBehaviour
                 warningAimed.gameObject.SetActive(false);
             }
         }
+    }
+
+    bool GunIsOn(SheepStatus sheep)
+    {
+        if (sheep == null || sheep.rect == null) return false;
+        if (aimRect == null) return true;
+        float reach = Mathf.Max(closeDistance, 80f);
+        return Vector2.Distance(aimRect.anchoredPosition, sheep.rect.anchoredPosition) <= reach;
+    }
+
+    private SheepStatus FindFullSuspicionSheep()
+    {
+        if (allSheep == null) return null;
+
+        SheepStatus found = null;
+        for (int i = 0; i < allSheep.Length; i++)
+        {
+            SheepStatus sheep = allSheep[i];
+            if (sheep == null || !sheep.alive || !sheep.gameObject.activeSelf) continue;
+            if (sheep.suspicion < 100f) continue;
+
+            if (found == null || sheep.isWolf || (!found.isWolf && sheep.suspicion > found.suspicion))
+                found = sheep;
+        }
+        return found;
     }
 
     private void UpdateTargetSelection(float dt)
@@ -293,6 +413,46 @@ public class AimController : MonoBehaviour
         }
     }
 
+    public void ReplayShot(SheepStatus target)
+    {
+        if (target == null || !target.alive) return;
+
+        if (SoundLibrary.Instance != null)
+            SoundLibrary.Instance.PlaySFX("Gun_Shot");
+        if (ownerMuzzleFlash)
+        {
+            ownerMuzzleFlash.SetActive(true);
+            _muzzleFlashTimer = 0.1f;
+        }
+
+        if (fxPoofs != null && fxPoofs.Length > 0)
+        {
+            int slot = _poofIndex % fxPoofs.Length;
+            _poofIndex++;
+            GameObject poof = fxPoofs[slot];
+            if (poof)
+            {
+                RectTransform poofRect = (_poofRects != null && slot < _poofRects.Length) ? _poofRects[slot] : poof.GetComponent<RectTransform>();
+                if (poofRect != null && target.rect != null)
+                    poofRect.anchoredPosition = target.rect.anchoredPosition;
+                poof.SetActive(false);
+                poof.SetActive(true);
+                StartCoroutine(HidePoofAfter(poof, 0.5f));
+            }
+        }
+
+        target.ApplyBurnedEffect();
+        if (target.isWolf && flashShot)
+        {
+            flashShot.SetActive(true);
+            StartCoroutine(HideFlashShotAfter(0.15f));
+        }
+        else if (!target.diesForGood && SoundLibrary.Instance != null)
+        {
+            SoundLibrary.Instance.PlaySFX("Wrong_Kill");
+        }
+    }
+
     private void ApplyHitToTarget(SheepStatus target)
     {
         if (target == null) return;
@@ -300,19 +460,31 @@ public class AimController : MonoBehaviour
         // Play Poof VFX
         if (fxPoofs != null && fxPoofs.Length > 0)
         {
-            GameObject poof = fxPoofs[_poofIndex % fxPoofs.Length];
+            int slot = _poofIndex % fxPoofs.Length;
             _poofIndex++;
+            GameObject poof = fxPoofs[slot];
             if (poof)
             {
-                poof.GetComponent<RectTransform>().anchoredPosition = target.rect.anchoredPosition;
+                RectTransform poofRect = (_poofRects != null && slot < _poofRects.Length) ? _poofRects[slot] : poof.GetComponent<RectTransform>();
+                if (poofRect != null)
+                    poofRect.anchoredPosition = target.rect.anchoredPosition;
                 poof.SetActive(false);
                 poof.SetActive(true);
                 StartCoroutine(HidePoofAfter(poof, 0.5f));
             }
         }
 
+        if (MatchSession.Playing)
+            MatchSession.Instance.PrepareHit(target);
+
         // Apply burned effect
         target.ApplyBurnedEffect();
+
+        if (MatchSession.Playing)
+        {
+            MatchSession.Instance.AuthorityHit(target);
+            return;
+        }
 
         if (target.isWolf)
         {
