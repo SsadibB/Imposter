@@ -1198,6 +1198,7 @@ public class MatchSession : MonoBehaviour, INetworkRunnerCallbacks
         }
         _pilot = null;
         HideTags();
+        SetIdentityMarkers(true);
         if (_sheep != null)
         {
             for (int i = 0; i < _sheep.Length; i++)
@@ -1845,6 +1846,12 @@ public class MatchSession : MonoBehaviour, INetworkRunnerCallbacks
     void ShowTags()
     {
         HideTags();
+        // Sheep_Player carries the blue ring, the YOU label, and the name tag.
+        // In 1v1 that sheep is the imposter, so the owner must not see any of them.
+        bool ownerView = _mode == MatchKind.OneVsOne && LocalIsOwner;
+        SetIdentityMarkers(!ownerView);
+        if (ownerView) return;
+
         for (int i = 0; i < _seats.Count; i++)
         {
             SheepStatus sheep = SheepAt(_seats[i].Sheep);
@@ -1877,6 +1884,22 @@ public class MatchSession : MonoBehaviour, INetworkRunnerCallbacks
             Transform tag = _sheep[i].transform.Find("PlayerTag");
             if (tag != null) Destroy(tag.gameObject);
         }
+    }
+
+    void SetIdentityMarkers(bool show)
+    {
+        if (_wolf == null) BindScene();
+        if (_wolf == null) return;
+        SetChildActive(_wolf.transform, "YouRing", show);
+        SetChildActive(_wolf.transform, "YouLabel", show);
+    }
+
+    static void SetChildActive(Transform parent, string childName, bool show)
+    {
+        if (parent == null) return;
+        Transform child = parent.Find(childName);
+        if (child != null && child.gameObject.activeSelf != show)
+            child.gameObject.SetActive(show);
     }
 
     void BuildRows()
